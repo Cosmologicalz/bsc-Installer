@@ -65,9 +65,11 @@ class BSIInstaller(tk.Tk):
         install_base_path = self.install_path.get()
         beam_server_path = os.path.join(install_base_path, "Beam Server")
         bsi_folder_path = os.path.join(beam_server_path, "BSI")
-        bsi_zip_url = "[https://github.com/Cosmologicalz/Beammp-server-creator/archive/refs/tags/v0.2.3.zip](https://github.com/Cosmologicalz/Beammp-server-creator/archive/refs/tags/v0.2.3.zip)"
+        # Corrected URL - removed Markdown formatting
+        bsi_zip_url = "https://github.com/Cosmologicalz/Beammp-server-creator/archive/refs/tags/v0.2.3.zip" 
         bsi_zip_filename = os.path.join(beam_server_path, "v0.2.3.zip")
-        beammp_server_exe_url = "[https://github.com/BeamMP/BeamMP-Server/releases/latest/download/BeamMP-Server.exe](https://github.com/BeamMP/BeamMP-Server/releases/latest/download/BeamMP-Server.exe)"
+        # Corrected URL - removed Markdown formatting
+        beammp_server_exe_url = "https://github.com/BeamMP/BeamMP-Server/releases/latest/download/BeamMP-Server.exe"
 
         try:
             # 1. Create main folder: Beam Server
