@@ -12,7 +12,8 @@ class BSIInstaller(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("BSI Installer - v0.1")
-        self.geometry("600x400")
+        # Increased window size for better spacing and centering
+        self.geometry("750x500") 
         self.resizable(False, False)
         self.iconbitmap(default='') # Prevents an error on some systems if no icon is provided
 
@@ -22,6 +23,10 @@ class BSIInstaller(tk.Tk):
         self.default_install_path = os.path.join(os.path.expanduser("~"), "Documents", "Beam Server")
         self.install_path.set(self.default_install_path)
 
+        # Configure grid for the main window to ensure frames fill it
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
         self.frames = {}
         self.create_frames()
         self.show_frame("WelcomePage")
@@ -30,17 +35,17 @@ class BSIInstaller(tk.Tk):
         # Page 1: Welcome Page
         welcome_frame = WelcomePage(self, self)
         self.frames["WelcomePage"] = welcome_frame
-        welcome_frame.grid(row=0, column=0, sticky="nsew")
+        welcome_frame.grid(row=0, column=0, sticky="nsew") # Make frame fill the parent
 
-        # Page 2: Install Instructions Page
+        # Page 2: Install Options Page
         install_options_frame = InstallOptionsPage(self, self)
         self.frames["InstallOptionsPage"] = install_options_frame
-        install_options_frame.grid(row=0, column=0, sticky="nsew")
+        install_options_frame.grid(row=0, column=0, sticky="nsew") # Make frame fill the parent
 
         # Page 3: Installation Progress Page
         install_progress_frame = InstallProgressPage(self, self)
         self.frames["InstallProgressPage"] = install_progress_frame
-        install_progress_frame.grid(row=0, column=0, sticky="nsew")
+        install_progress_frame.grid(row=0, column=0, sticky="nsew") # Make frame fill the parent
 
     def show_frame(self, page_name):
         frame = self.frames[page_name]
@@ -154,7 +159,6 @@ class BSIInstaller(tk.Tk):
                 # Create a shortcut of the BeamMP-Server.exe in the main folder.
                 # Python does not have a built-in cross-platform way to create .lnk (Windows) or .desktop (Linux) shortcuts.
                 # For simplicity, we'll create a simple batch/shell script shortcut or a Python-specific "shortcut" (e.g., a simple wrapper script).
-                # For a true installer, pyinstaller's --onefile option often handles this or dedicated libraries.
                 # For this exercise, we'll create a simple batch file for Windows or a shell script for Linux/macOS.
                 progress_page.update_status("Creating BeamMP-Server shortcut...", 85)
                 shortcut_path = os.path.join(beam_server_path, "Start BeamMP Server.bat" if os.name == 'nt' else "start_beammp_server.sh")
@@ -201,34 +205,35 @@ class WelcomePage(tk.Frame):
         self.configure(bg="#f0f0f0") # Light grey background
 
         # Use a grid layout for better control over element positioning
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
-        self.rowconfigure(1, weight=3)
-        self.rowconfigure(2, weight=1)
+        self.columnconfigure(0, weight=1) # This makes the single column expandable for centering
+        self.rowconfigure(0, weight=1) # Top row can expand
+        self.rowconfigure(1, weight=3) # Middle row for description can expand more
+        self.rowconfigure(2, weight=1) # Bottom row can expand
 
         # Heading
-        heading = tk.Label(self, text="BSI Installer", font=("Inter", 24, "bold"), fg="#333", bg="#f0f0f0")
-        heading.grid(row=0, column=0, pady=(40, 20), sticky="s") # Padded at top, sticks to south
+        heading = tk.Label(self, text="BSI Installer", font=("Inter", 28, "bold"), fg="#333", bg="#f0f0f0")
+        # padx/pady for outer spacing, sticky="s" to align to bottom of its row
+        heading.grid(row=0, column=0, pady=(60, 20), sticky="s")
 
         # Description
         description_text = (
             "BSI (BeamMP Server Installer) creates BeamMP servers very quickly, "
             "making it easier to set up and manage your server instances."
         )
-        description = tk.Label(self, text=description_text, font=("Inter", 12), wraplength=400,
+        description = tk.Label(self, text=description_text, font=("Inter", 14), wraplength=550,
                                justify="center", fg="#555", bg="#f0f0f0")
-        description.grid(row=1, column=0, padx=50, pady=10, sticky="nsew")
+        # padx/pady for inner spacing, sticky="nsew" to make it fill its cell, centered by columnconfigure
+        description.grid(row=1, column=0, padx=50, pady=20, sticky="nsew")
 
         # Next Button
         next_button = tk.Button(self, text="Next", command=lambda: controller.show_frame("InstallOptionsPage"),
-                                font=("Inter", 12, "bold"), bg="#4CAF50", fg="white",
+                                font=("Inter", 14, "bold"), bg="#4CAF50", fg="white",
                                 activebackground="#45a049", activeforeground="white",
-                                relief="raised", bd=0, padx=20, pady=10, cursor="hand2")
-        next_button.grid(row=2, column=0, pady=(20, 40), sticky="n") # Padded at bottom, sticks to north
+                                relief="raised", bd=0, padx=25, pady=12, cursor="hand2")
+        # padx/pady for outer spacing, sticky="n" to align to top of its row
+        next_button.grid(row=2, column=0, pady=(30, 60), sticky="n")
 
-        # Add some subtle styling
-        for widget in self.winfo_children():
-            widget.grid_configure(padx=10) # Add some horizontal padding to all children
+        # Add some subtle styling - removed the loop, applying padding directly in grid
 
 class InstallOptionsPage(tk.Frame):
     def __init__(self, parent, controller):
@@ -236,55 +241,63 @@ class InstallOptionsPage(tk.Frame):
         self.controller = controller
         self.configure(bg="#f0f0f0")
 
-        self.columnconfigure(0, weight=1)
-        self.columnconfigure(1, weight=3) # Make path entry wider
-        self.columnconfigure(2, weight=1)
+        # Configure columns to ensure centering and proper sizing
+        self.columnconfigure(0, weight=1) # Empty space on left
+        self.columnconfigure(1, weight=3) # Main content area for path entry
+        self.columnconfigure(2, weight=1) # Empty space on right
+
+        # Configure rows
+        self.rowconfigure(0, weight=1) # Heading row
+        self.rowconfigure(1, weight=1) # Path row
+        self.rowconfigure(2, weight=0) # Checkbox 1 (no weight to keep compact)
+        self.rowconfigure(3, weight=0) # Checkbox 2 (no weight)
+        self.rowconfigure(4, weight=2) # Buttons row (more space at bottom)
 
         # Install Instructions Label
-        tk.Label(self, text="Installation Options", font=("Inter", 20, "bold"), fg="#333", bg="#f0f0f0") \
-            .grid(row=0, column=0, columnspan=3, pady=(30, 20), sticky="n")
+        tk.Label(self, text="Installation Options", font=("Inter", 24, "bold"), fg="#333", bg="#f0f0f0") \
+            .grid(row=0, column=0, columnspan=3, pady=(40, 20), sticky="n") # Centered across 3 columns
 
         # Install Path Label and Entry
         tk.Label(self, text="Install Location:", font=("Inter", 12), fg="#555", bg="#f0f0f0") \
-            .grid(row=1, column=0, padx=(50, 10), pady=10, sticky="w")
-        
-        path_entry = tk.Entry(self, textvariable=controller.install_path, width=50, font=("Inter", 10), bd=2, relief="groove")
-        path_entry.grid(row=1, column=1, pady=10, sticky="ew")
+            .grid(row=1, column=0, padx=(50, 10), pady=10, sticky="e") # Stick to east of its cell
+
+        path_entry = tk.Entry(self, textvariable=controller.install_path, font=("Inter", 11), bd=2, relief="groove")
+        path_entry.grid(row=1, column=1, pady=10, sticky="ew", padx=5) # Expand horizontally, small internal padding
 
         browse_button = tk.Button(self, text="Browse...", command=self.browse_folder,
-                                  font=("Inter", 10), bg="#007BFF", fg="white",
+                                  font=("Inter", 11), bg="#007BFF", fg="white",
                                   activebackground="#0056b3", activeforeground="white",
-                                  relief="raised", bd=0, padx=10, pady=5, cursor="hand2")
-        browse_button.grid(row=1, column=2, padx=(10, 50), pady=10, sticky="w")
+                                  relief="raised", bd=0, padx=12, pady=6, cursor="hand2")
+        browse_button.grid(row=1, column=2, padx=(5, 50), pady=10, sticky="w") # Stick to west of its cell
 
         # Checkboxes
         tk.Checkbutton(self, text="Delete BSI zipfile after extraction", variable=controller.delete_zip_var,
                        font=("Inter", 11), bg="#f0f0f0", fg="#333",
                        selectcolor="#d9d9d9", relief="flat", bd=0) \
-            .grid(row=2, column=0, columnspan=3, padx=50, pady=5, sticky="w")
+            .grid(row=2, column=0, columnspan=3, padx=(100, 50), pady=5, sticky="w") # More padding to align checkboxes
 
         tk.Checkbutton(self, text="Create BeamMP server (recommended)", variable=controller.create_server_var,
                        font=("Inter", 11), bg="#f0f0f0", fg="#333",
                        selectcolor="#d9d9d9", relief="flat", bd=0) \
-            .grid(row=3, column=0, columnspan=3, padx=50, pady=5, sticky="w")
+            .grid(row=3, column=0, columnspan=3, padx=(100, 50), pady=5, sticky="w") # More padding
 
         # Back and Install Buttons
         button_frame = tk.Frame(self, bg="#f0f0f0")
-        button_frame.grid(row=4, column=0, columnspan=3, pady=(30, 30), sticky="s")
-        button_frame.columnconfigure(0, weight=1)
-        button_frame.columnconfigure(1, weight=1)
+        button_frame.grid(row=4, column=0, columnspan=3, pady=(40, 40), sticky="s") # Centered at bottom
+        button_frame.columnconfigure(0, weight=1) # For back button
+        button_frame.columnconfigure(1, weight=1) # For install button
 
         back_button = tk.Button(button_frame, text="Back", command=lambda: controller.show_frame("WelcomePage"),
-                                font=("Inter", 12, "bold"), bg="#6c757d", fg="white",
+                                font=("Inter", 14, "bold"), bg="#6c757d", fg="white",
                                 activebackground="#5a6268", activeforeground="white",
-                                relief="raised", bd=0, padx=20, pady=10, cursor="hand2")
-        back_button.grid(row=0, column=0, padx=10, sticky="e")
+                                relief="raised", bd=0, padx=25, pady=12, cursor="hand2")
+        back_button.grid(row=0, column=0, padx=20, sticky="e") # Stick to east
 
         install_button = tk.Button(button_frame, text="Install", command=lambda: controller.show_frame("InstallProgressPage"),
-                                  font=("Inter", 12, "bold"), bg="#28a745", fg="white",
+                                  font=("Inter", 14, "bold"), bg="#28a745", fg="white",
                                   activebackground="#218838", activeforeground="white",
-                                  relief="raised", bd=0, padx=20, pady=10, cursor="hand2")
-        install_button.grid(row=0, column=1, padx=10, sticky="w")
+                                  relief="raised", bd=0, padx=25, pady=12, cursor="hand2")
+        install_button.grid(row=0, column=1, padx=20, sticky="w") # Stick to west
 
     def browse_folder(self):
         folder_selected = filedialog.askdirectory(initialdir=self.controller.install_path.get())
@@ -297,28 +310,28 @@ class InstallProgressPage(tk.Frame):
         self.controller = controller
         self.configure(bg="#f0f0f0")
 
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
-        self.rowconfigure(2, weight=3) # Status messages take more space
-        self.rowconfigure(3, weight=1)
+        # Configure rows and columns for centering
+        self.columnconfigure(0, weight=1) # Single column to center elements
+        self.rowconfigure(0, weight=1) # Heading row
+        self.rowconfigure(1, weight=1) # Progress bar row
+        self.rowconfigure(2, weight=3) # Status messages row (more space)
+        self.rowconfigure(3, weight=1) # Button row
 
+        tk.Label(self, text="Installation Progress", font=("Inter", 24, "bold"), fg="#333", bg="#f0f0f0") \
+            .grid(row=0, column=0, pady=(40, 20), sticky="n") # Centered
 
-        tk.Label(self, text="Installation Progress", font=("Inter", 20, "bold"), fg="#333", bg="#f0f0f0") \
-            .grid(row=0, column=0, pady=(30, 20), sticky="n")
+        self.progress_bar = ttk.Progressbar(self, orient="horizontal", length=400, mode="determinate")
+        self.progress_bar.grid(row=1, column=0, pady=20, sticky="ew", padx=100) # Expand and center
 
-        self.progress_bar = ttk.Progressbar(self, orient="horizontal", length=300, mode="determinate")
-        self.progress_bar.grid(row=1, column=0, pady=10, sticky="ew", padx=50)
-
-        self.status_label = tk.Label(self, text="Ready to install...", font=("Inter", 11), wraplength=450,
+        self.status_label = tk.Label(self, text="Ready to install...", font=("Inter", 12), wraplength=550,
                                       justify="center", fg="#555", bg="#f0f0f0")
-        self.status_label.grid(row=2, column=0, padx=50, pady=10, sticky="n")
+        self.status_label.grid(row=2, column=0, padx=50, pady=20, sticky="n") # Centered
 
         self.install_button = tk.Button(self, text="Start Installation", command=self.controller.start_installation,
-                                         font=("Inter", 12, "bold"), bg="#007BFF", fg="white",
+                                         font=("Inter", 14, "bold"), bg="#007BFF", fg="white",
                                          activebackground="#0056b3", activeforeground="white",
-                                         relief="raised", bd=0, padx=20, pady=10, cursor="hand2")
-        self.install_button.grid(row=3, column=0, pady=(20, 30), sticky="n")
+                                         relief="raised", bd=0, padx=25, pady=12, cursor="hand2")
+        self.install_button.grid(row=3, column=0, pady=(30, 40), sticky="n") # Centered
 
     def update_status(self, message, progress_value, error=False, success=False):
         # Update progress bar and status label. Use after() to ensure GUI updates
