@@ -16,9 +16,12 @@ INSTALLER_REPO_OWNER = "Cosmologicalz"
 INSTALLER_REPO_NAME = "bsc-Installer"
 
 BSI_ZIP_URL_FORMAT = f"https://github.com/{BSI_REPO_OWNER}/{BSI_REPO_NAME}/archive/refs/tags/{{version}}.zip"
+# NEW: Define a similar format for the installer's own zip archive
+INSTALLER_ZIP_URL_FORMAT = f"https://github.com/{INSTALLER_REPO_OWNER}/{INSTALLER_REPO_NAME}/archive/refs/tags/{{version}}.zip"
+
 BEAMMP_SERVER_EXE_URL = "https://github.com/BeamMP/BeamMP-Server/releases/latest/download/BeamMP-Server.exe"
 
-CURRENT_INSTALLER_VERSION = "v0.4.5.1" # This installer's version
+CURRENT_INSTALLER_VERSION = "v0.4.6" # This installer's version
 
 # Constant for the configuration file
 CONFIG_FILE_NAME = "installer_config.ini"
@@ -46,7 +49,7 @@ class BSIInstaller(tk.Tk):
         self.default_install_path = os.path.join(os.path.expanduser("~"), "Documents", "Beam Server")
         self.install_path.set(self.default_install_path) # Set default initially
 
-        # NEW: Load previous installation path if available
+        # Load previous installation path if available
         self.load_installation_path()
 
         # Update status variables
@@ -66,7 +69,6 @@ class BSIInstaller(tk.Tk):
         self.show_frame("WelcomePage")
 
         # Start update check in a separate thread
-        # This will populate self.latest_bsi_version and self.latest_installer_version
         self.after(100, self.start_update_check) # Small delay to allow GUI to render
 
     def create_frames(self):
@@ -253,7 +255,7 @@ class BSIInstaller(tk.Tk):
             
             # Write/Update release.txt after successful installation
             self.write_release_file(bsi_version_to_install, CURRENT_INSTALLER_VERSION) 
-            # NEW: Save the successfully installed path
+            # Save the successfully installed path
             self.save_installation_path(install_base_path)
             
             progress_page.update_status("Installation complete!", 100, success=True)
@@ -263,7 +265,6 @@ class BSIInstaller(tk.Tk):
             progress_page.update_status(f"An error occurred: {e}", 100, error=True)
             messagebox.showerror("Installation Error", f"An unexpected error occurred during installation: {e}")
 
-    # NEW: Methods for saving and loading the installation path
     def get_config_file_path(self):
         # Get the directory where the installer script is located
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -494,21 +495,45 @@ class BSIInstaller(tk.Tk):
             if self.installer_update_available and update_success: 
                 progress_page.update_status(f"Updating BSI Installer to {self.latest_installer_version}...", 60)
                 
-                new_installer_script_url = f"https://raw.githubusercontent.com/{INSTALLER_REPO_OWNER}/{INSTALLER_REPO_NAME}/{self.latest_installer_version}/bsi_installer.pyw"
-                # Save the new script with a temporary name to avoid overwriting the running script
-                temp_new_installer_path = os.path.join(os.path.dirname(__file__), "bsi_installer_new_version.py") 
+                installer_zip_url_to_download = INSTALLER_ZIP_URL_FORMAT.format(version=self.latest_installer_version)
+                temp_installer_zip_path = os.path.join(os.path.dirname(__file__), f"{INSTALLER_REPO_NAME}-{self.latest_installer_version}.zip")
+                temp_extract_dir = os.path.join(os.path.dirname(__file__), "temp_installer_update_extract")
                 
                 try:
-                    response = requests.get(new_installer_script_url, stream=True)
+                    # Download the new installer zip
+                    response = requests.get(installer_zip_url_to_download, stream=True)
                     response.raise_for_status()
-                    with open(temp_new_installer_path, 'wb') as f:
+                    with open(temp_installer_zip_path, 'wb') as f:
                         for chunk in response.iter_content(chunk_size=8192):
                             f.write(chunk)
-                    progress_page.update_status("New installer script downloaded.", 80)
+                    progress_page.update_status("New installer zip downloaded.", 70)
+
+                    # Extract the installer script from the zip
+                    os.makedirs(temp_extract_dir, exist_ok=True)
+                    with zipfile.ZipFile(temp_installer_zip_path, 'r') as zip_ref:
+                        # Find the common prefix (root folder) inside the installer zip
+                        installer_common_prefix = os.path.commonpath([m for m in zip_ref.namelist() if m.startswith(f"{INSTALLER_REPO_NAME}-") and m.endswith('/')])
+                        
+                        target_script_name = "bsi_installer.py" # The name of the main script within the zip
+                        found_script = False
+                        for member in zip_ref.namelist():
+                            if member.startswith(installer_common_prefix) and member.endswith(target_script_name):
+                                script_source = zip_ref.open(member)
+                                temp_new_installer_path = os.path.join(os.path.dirname(__file__), "bsi_installer_new_version.py")
+                                with open(temp_new_installer_path, "wb") as target:
+                                    shutil.copyfileobj(script_source, target)
+                                script_source.close()
+                                found_script = True
+                                break
+                        
+                        if not found_script:
+                            raise FileNotFoundError(f"Could not find '{target_script_name}' in the downloaded installer zip.")
+
+                    progress_page.update_status("New installer script extracted.", 80)
+                    os.remove(temp_installer_zip_path) # Clean up downloaded zip
+                    shutil.rmtree(temp_extract_dir) # Clean up temp extraction dir
 
                     # Update release.txt with the new installer version
-                    # Note: This updates the release.txt in the *installed* Beam Server folder.
-                    # The *running* installer's version (CURRENT_INSTALLER_VERSION) won't change until it's restarted.
                     self.write_release_file(self.current_bsc_version or self.latest_bsi_version, self.latest_installer_version)
 
                     # Inform user about restart
