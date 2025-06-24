@@ -18,7 +18,7 @@ INSTALLER_REPO_NAME = "bsc-Installer"
 BSI_ZIP_URL_FORMAT = f"https://github.com/{BSI_REPO_OWNER}/{BSI_REPO_NAME}/archive/refs/tags/{{version}}.zip"
 BEAMMP_SERVER_EXE_URL = "https://github.com/BeamMP/BeamMP-Server/releases/latest/download/BeamMP-Server.exe"
 
-CURRENT_INSTALLER_VERSION = "v0.4.5" # This installer's version
+CURRENT_INSTALLER_VERSION = "v0.4.2.1" # This installer's version
 
 # Constant for the configuration file
 CONFIG_FILE_NAME = "installer_config.ini"
@@ -494,7 +494,7 @@ class BSIInstaller(tk.Tk):
             if self.installer_update_available and update_success: 
                 progress_page.update_status(f"Updating BSI Installer to {self.latest_installer_version}...", 60)
                 
-                new_installer_script_url = f"https://raw.githubusercontent.com/{INSTALLER_REPO_OWNER}/{INSTALLER_REPO_NAME}/{self.latest_installer_version}/bsi_installer.py"
+                new_installer_script_url = f"https://raw.githubusercontent.com/{INSTALLER_REPO_OWNER}/{INSTALLER_REPO_NAME}/{self.latest_installer_version}/bsi_installer.pyw"
                 # Save the new script with a temporary name to avoid overwriting the running script
                 temp_new_installer_path = os.path.join(os.path.dirname(__file__), "bsi_installer_new_version.py") 
                 
