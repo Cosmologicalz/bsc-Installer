@@ -494,7 +494,7 @@ class BSIInstaller(tk.Tk):
             if self.installer_update_available and update_success: 
                 progress_page.update_status(f"Updating BSI Installer to {self.latest_installer_version}...", 60)
                 
-                new_installer_script_url = f"https://raw.githubusercontent.com/{INSTALLER_REPO_OWNER}/{INSTALLER_REPO_NAME}/{self.latest_installer_version}/bsi_installer.py"
+                new_installer_script_url = f"https://raw.githubusercontent.com/{INSTALLER_REPO_OWNER}/{INSTALLER_REPO_NAME}/{self.latest_installer_version}/bsi_installer.pyw"
                 # Save the new script with a temporary name to avoid overwriting the running script
                 temp_new_installer_path = os.path.join(os.path.dirname(__file__), "bsi_installer_new_version.py") 
                 
