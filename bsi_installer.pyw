@@ -18,7 +18,7 @@ INSTALLER_REPO_NAME = "bsc-Installer"
 BSI_ZIP_URL_FORMAT = f"https://github.com/{BSI_REPO_OWNER}/{BSI_REPO_NAME}/archive/refs/tags/{{version}}.zip"
 BEAMMP_SERVER_EXE_URL = "https://github.com/BeamMP/BeamMP-Server/releases/latest/download/BeamMP-Server.exe"
 
-CURRENT_INSTALLER_VERSION = "v0.4" # This installer's version
+CURRENT_INSTALLER_VERSION = "v0.4.3" # This installer's version
 
 class BSIInstaller(tk.Tk):
     def __init__(self):
@@ -59,6 +59,7 @@ class BSIInstaller(tk.Tk):
         self.show_frame("WelcomePage")
 
         # Start update check in a separate thread
+        # This will populate self.latest_bsi_version and self.latest_installer_version
         self.after(100, self.start_update_check) # Small delay to allow GUI to render
 
     def create_frames(self):
@@ -80,9 +81,11 @@ class BSIInstaller(tk.Tk):
 
     def start_installation(self):
         progress_page = self.frames["InstallProgressPage"]
-        progress_page.reset_status()
-        progress_page.update_status("Starting installation...", 0)
-
+        self.show_frame("InstallProgressPage") # Navigate to progress page first
+        progress_page.reset_status() # Reset status to 'Preparing...'
+        progress_page.action_button.config(state=tk.DISABLED) # Disable button immediately
+        
+        # Start the installation process in a separate thread
         installation_thread = threading.Thread(target=self._run_installation, args=(progress_page,))
         installation_thread.start()
 
@@ -91,10 +94,19 @@ class BSIInstaller(tk.Tk):
         beam_server_path = os.path.join(install_base_path, "Beam Server")
         bsi_folder_path = os.path.join(beam_server_path, "BSI")
         
-        # Use a placeholder for BSI_ZIP_URL_FORMAT as the version is dynamic or from the latest release
-        # For initial install, we'll use the version requested in the previous prompt v0.2.3.3
-        bsi_zip_url = BSI_ZIP_URL_FORMAT.format(version="v0.2.3.3") # Default for initial install
-        bsi_zip_filename = os.path.join(beam_server_path, "Beammp-server-creator-v0.2.3.3.zip") # Specific filename
+        # Determine BSI version to install: Use the latest detected from GitHub API
+        bsi_version_to_install = self.latest_bsi_version 
+        if not bsi_version_to_install:
+            # Fallback if update check hasn't run or failed (e.g., very fast click or network issue)
+            progress_page.update_status("Fetching latest BSI version for installation...", 15)
+            bsi_version_to_install = self.get_latest_github_release_tag(BSI_REPO_OWNER, BSI_REPO_NAME)
+            if not bsi_version_to_install:
+                progress_page.update_status("Could not determine latest BSI version. Aborting installation.", 100, error=True)
+                messagebox.showerror("Installation Error", "Failed to determine the latest BSI version from GitHub. Please check your internet connection or repository access.")
+                return
+            
+        bsi_zip_url = BSI_ZIP_URL_FORMAT.format(version=bsi_version_to_install)
+        bsi_zip_filename = os.path.join(beam_server_path, f"{BSI_REPO_NAME}-{bsi_version_to_install}.zip")
 
         try:
             # 1. Create main folder: Beam Server
@@ -121,23 +133,27 @@ class BSIInstaller(tk.Tk):
             # 4. Extract the zip file in the main folder
             progress_page.update_status("Extracting BSI zipfile...", 40)
             try:
-                # The extracted folder name will be 'Beammp-server-creator-X.Y.Z'
                 with zipfile.ZipFile(bsi_zip_filename, 'r') as zip_ref:
-                    # Find the root folder inside the zip (e.g., Beammp-server-creator-0.2.3.3)
+                    # Find the root folder inside the zip (e.g., Beammp-server-creator-0.2.3.2)
                     # We want to extract content of this folder directly into beam_server_path
+                    # Get the common prefix of all files in the zip (which is the root folder name)
+                    common_prefix = os.path.commonpath([m for m in zip_ref.namelist() if m.startswith(f"{BSI_REPO_NAME}-") and m.endswith('/')])
+                    
                     for member in zip_ref.namelist():
-                        if member.startswith(f"{BSI_REPO_NAME}-") and member.endswith('/'):
-                            # This is the root folder. Extract its contents.
-                            # Skip the root folder itself to avoid nested directory
-                            continue 
-                        
-                        source = zip_ref.open(member)
-                        target_path = os.path.join(beam_server_path, os.path.relpath(member, os.path.commonpath([m for m in zip_ref.namelist() if m.startswith(f"{BSI_REPO_NAME}-")])))
-                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                        with open(target_path, "wb") as target:
-                            shutil.copyfileobj(source, target)
-                        source.close()
+                        if member.startswith(common_prefix):
+                            # Construct the target path, stripping the common_prefix
+                            target_path_suffix = os.path.relpath(member, common_prefix)
+                            if target_path_suffix == ".": # Skip the root directory itself
+                                continue
 
+                            target_path = os.path.join(beam_server_path, target_path_suffix)
+                            
+                            if member.endswith('/'): # If it's a directory
+                                os.makedirs(target_path, exist_ok=True)
+                            else: # If it's a file
+                                os.makedirs(os.path.dirname(target_path), exist_ok=True) # Ensure parent directory exists
+                                with zip_ref.open(member) as source, open(target_path, "wb") as target:
+                                    shutil.copyfileobj(source, target)
 
             except zipfile.BadZipFile:
                 progress_page.update_status("Error: Downloaded BSI zip is corrupted.", 100, error=True)
@@ -229,7 +245,7 @@ class BSIInstaller(tk.Tk):
                     return
             
             # Write/Update release.txt after successful installation
-            self.write_release_file("v0.2.3.3", CURRENT_INSTALLER_VERSION) # Assuming BSI installed is v0.2.3.3 initially
+            self.write_release_file(bsi_version_to_install, CURRENT_INSTALLER_VERSION) 
             
             progress_page.update_status("Installation complete!", 100, success=True)
             messagebox.showinfo("Installation Complete", "BSI and BeamMP Server (if selected) have been installed successfully!")
@@ -321,7 +337,7 @@ class BSIInstaller(tk.Tk):
         if self.bsi_update_available or self.installer_update_available:
             update_text = "Updates available!\n\n"
             if self.bsi_update_available:
-                update_text += f"BSI (BeamMP Server Creator): Installed {self.current_bsc_version}, Latest {self.latest_bsi_version}\n"
+                update_text += f"BSI (BeamMP Server Creator): Installed {self.current_bsc_version or 'N/A'}, Latest {self.latest_bsi_version}\n"
             if self.installer_update_available:
                 update_text += f"BSI Installer: Installed {CURRENT_INSTALLER_VERSION}, Latest {self.latest_installer_version}\n"
             update_text += "\nDo you want to proceed with the update?"
@@ -336,8 +352,10 @@ class BSIInstaller(tk.Tk):
     def start_perform_update(self):
         progress_page = self.frames["InstallProgressPage"]
         self.show_frame("InstallProgressPage") # Switch to progress page
-        progress_page.reset_status()
+        progress_page.reset_status() # Reset for update
         progress_page.update_status("Starting update process...", 0)
+        # Disable button immediately as update begins
+        progress_page.action_button.config(state=tk.DISABLED) 
 
         threading.Thread(target=self._run_perform_update, args=(progress_page,)).start()
 
@@ -363,19 +381,26 @@ class BSIInstaller(tk.Tk):
                     # Extract the zip file, replacing existing BSI files
                     progress_page.update_status("Extracting new BSI files...", 30)
                     with zipfile.ZipFile(bsi_zip_filename, 'r') as zip_ref:
-                         for member in zip_ref.namelist():
-                            if member.startswith(f"{BSI_REPO_NAME}-") and member.endswith('/'):
-                                continue 
-                            
-                            source = zip_ref.open(member)
-                            target_path = os.path.join(beam_server_path, os.path.relpath(member, os.path.commonpath([m for m in zip_ref.namelist() if m.startswith(f"{BSI_REPO_NAME}-")])))
-                            os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                            with open(target_path, "wb") as target:
-                                shutil.copyfileobj(source, target)
-                            source.close()
-                    progress_page.update_status("BSI extracted.", 40)
-                    os.remove(bsi_zip_filename) # Clean up downloaded zip
+                        common_prefix = os.path.commonpath([m for m in zip_ref.namelist() if m.startswith(f"{BSI_REPO_NAME}-") and m.endswith('/')])
+                        
+                        for member in zip_ref.namelist():
+                            if member.startswith(common_prefix):
+                                target_path_suffix = os.path.relpath(member, common_prefix)
+                                if target_path_suffix == ".": 
+                                    continue
 
+                                target_path = os.path.join(beam_server_path, target_path_suffix)
+                                
+                                if member.endswith('/'): 
+                                    os.makedirs(target_path, exist_ok=True)
+                                else: 
+                                    os.makedirs(os.path.dirname(target_path), exist_ok=True) 
+                                    with zip_ref.open(member) as source, open(target_path, "wb") as target:
+                                        shutil.copyfileobj(source, target)
+                    progress_page.update_status("BSI extracted.", 40)
+                    os.remove(bsi_zip_filename) 
+
+                    # Update release.txt with the new BSI version
                     self.write_release_file(self.latest_bsi_version, self.current_installer_installed_version or CURRENT_INSTALLER_VERSION)
                     progress_page.update_status("BSI updated successfully!", 50)
                 except requests.exceptions.RequestException as e:
@@ -387,17 +412,12 @@ class BSIInstaller(tk.Tk):
                     messagebox.showerror("Update Error", f"An error occurred during BSI extraction: {e}")
                     update_success = False
 
-            if self.installer_update_available and update_success: # Only proceed if BSI updated successfully or no BSI update needed
+            if self.installer_update_available and update_success: 
                 progress_page.update_status(f"Updating BSI Installer to {self.latest_installer_version}...", 60)
-                installer_zip_url_to_download = BSI_ZIP_URL_FORMAT.format(version=self.latest_installer_version) # Assuming installer is packaged same way as BSI
                 
-                # If the installer is a single .py file, we need a different download path.
-                # Let's assume the installer's source is downloaded as a zip, and we are looking for the main .py file
-                # A more robust self-update mechanism usually involves a bootstrap script or dedicated installer builder.
-                # For this example, we'll download the new script and prompt the user to restart.
-
                 new_installer_script_url = f"https://raw.githubusercontent.com/{INSTALLER_REPO_OWNER}/{INSTALLER_REPO_NAME}/{self.latest_installer_version}/bsi_installer.py"
-                temp_new_installer_path = os.path.join(os.path.dirname(__file__), "new_bsi_installer.py")
+                # Save the new script with a temporary name to avoid overwriting the running script
+                temp_new_installer_path = os.path.join(os.path.dirname(__file__), "bsi_installer_new_version.py") 
                 
                 try:
                     response = requests.get(new_installer_script_url, stream=True)
@@ -407,14 +427,18 @@ class BSIInstaller(tk.Tk):
                             f.write(chunk)
                     progress_page.update_status("New installer script downloaded.", 80)
 
-                    self.write_release_file(self.current_bsc_version or self.latest_bsi_version, self.latest_installer_version) # Update installed installer version
+                    # Update release.txt with the new installer version
+                    self.write_release_file(self.current_bsc_version or self.latest_bsi_version, self.latest_installer_version)
 
+                    # Inform user about restart
                     progress_page.update_status("Installer update downloaded. Please restart the application to use the new version.", 90, success=True)
-                    messagebox.showinfo("Installer Update", "The new installer version has been downloaded. Please close this installer and run 'new_bsi_installer.py' (or your original installer script if it was updated in place) to complete the update.")
+                    messagebox.showinfo("Installer Update", 
+                                        "The new installer version has been downloaded. "
+                                        "Please close this installer. The new version is saved as 'bsi_installer_new_version.py' in the same directory. "
+                                        "To complete the update, you will need to manually rename it to 'bsi_installer.py' (or whatever you named your original script) and run it.")
                     
-                    # Indicate that restart is required and disable further actions
-                    self.install_button.config(state=tk.DISABLED) # Disable further updates from this old instance
-                    update_success = True # Indicate the download was successful, even if restart is pending
+                    progress_page.action_button.config(state=tk.DISABLED) 
+                    update_success = True 
 
                 except requests.exceptions.RequestException as e:
                     progress_page.update_status(f"Error updating BSI Installer: {e}", 100, error=True)
@@ -442,11 +466,10 @@ class WelcomePage(tk.Frame):
         self.controller = controller
         self.configure(bg="#f0f0f0")
 
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
-        self.rowconfigure(1, weight=3)
-        self.rowconfigure(2, weight=1)
-        self.rowconfigure(3, weight=1) # Row for update button and indicator
+        self.columnconfigure(0, weight=1) # Main content column
+        self.rowconfigure(0, weight=1) # Top padding/heading
+        self.rowconfigure(1, weight=3) # Description area
+        self.rowconfigure(2, weight=1) # Navigation buttons
 
         heading = tk.Label(self, text="BSI Installer", font=("Inter", 28, "bold"), fg="#333", bg="#f0f0f0")
         heading.grid(row=0, column=0, pady=(60, 20), sticky="s")
@@ -459,39 +482,50 @@ class WelcomePage(tk.Frame):
                                justify="center", fg="#555", bg="#f0f0f0")
         description.grid(row=1, column=0, padx=50, pady=20, sticky="nsew")
 
-        # Container for Next and Update buttons
-        button_container = tk.Frame(self, bg="#f0f0f0")
-        button_container.grid(row=2, column=0, pady=(30, 20), sticky="n")
-        button_container.columnconfigure(0, weight=1)
-        button_container.columnconfigure(1, weight=1)
+        # Centralized Navigation Frame for consistency
+        self.navigation_frame = tk.Frame(self, bg="#f0f0f0")
+        self.navigation_frame.grid(row=2, column=0, pady=(30, 40), sticky="s")
+        self.navigation_frame.columnconfigure(0, weight=1) # Spacer on left
+        self.navigation_frame.columnconfigure(1, weight=0) # Back button
+        self.navigation_frame.columnconfigure(2, weight=0) # Next/Install button
+        self.navigation_frame.columnconfigure(3, weight=0) # Update button (right-aligned)
+        self.navigation_frame.columnconfigure(4, weight=1) # Spacer on right
 
-        next_button = tk.Button(button_container, text="Install New", command=lambda: controller.show_frame("InstallOptionsPage"),
+        # Back Button (Not used on WelcomePage, but part of consistent frame)
+        self.back_button = tk.Button(self.navigation_frame, text="< Back", command=None,
+                                     font=("Inter", 14, "bold"), bg="#6c757d", fg="white",
+                                     activebackground="#5a6268", activeforeground="white",
+                                     relief="raised", bd=0, padx=20, pady=12, cursor="hand2", state=tk.DISABLED)
+        # We won't grid it directly here, but rather pack/grid it in the child classes
+        # This button is logically disabled on the first page, so it's handled by other pages.
+
+        # Next/Install Button
+        next_button = tk.Button(self.navigation_frame, text="Next >", command=lambda: controller.show_frame("InstallOptionsPage"),
                                 font=("Inter", 14, "bold"), bg="#4CAF50", fg="white",
                                 activebackground="#45a049", activeforeground="white",
-                                relief="raised", bd=0, padx=25, pady=12, cursor="hand2")
-        next_button.grid(row=0, column=0, padx=10, sticky="e")
+                                relief="raised", bd=0, padx=20, pady=12, cursor="hand2")
+        next_button.grid(row=0, column=2, padx=(10,0), sticky="e") # Placed to the right
 
         # Update Button and Indicator
-        update_frame = tk.Frame(button_container, bg="#f0f0f0")
-        update_frame.grid(row=0, column=1, padx=10, sticky="w")
+        update_frame = tk.Frame(self.navigation_frame, bg="#f0f0f0")
+        update_frame.grid(row=0, column=3, padx=(20,0), sticky="e") # Placed to the far right
 
         self.update_button = tk.Button(update_frame, text="Update", command=self.controller.show_update_dialog,
                                        font=("Inter", 14, "bold"), bg="#007BFF", fg="white",
                                        activebackground="#0056b3", activeforeground="white",
-                                       relief="raised", bd=0, padx=25, pady=12, cursor="hand2")
+                                       relief="raised", bd=0, padx=20, pady=12, cursor="hand2")
         self.update_button.pack(side=tk.LEFT)
 
-        # Update indicator (red dot)
         self.update_indicator = tk.Canvas(update_frame, width=15, height=15, bg="#f0f0f0", highlightthickness=0)
         self.update_indicator_oval = self.update_indicator.create_oval(3, 3, 12, 12, fill="red", outline="red")
         self.update_indicator.pack(side=tk.RIGHT, padx=(5,0))
-        self.update_indicator.pack_forget() # Hide initially
+        self.update_indicator.pack_forget()
 
     def update_update_indicator(self):
         if self.controller.bsi_update_available or self.controller.installer_update_available:
-            self.update_indicator.pack(side=tk.RIGHT, padx=(5,0)) # Show indicator
+            self.update_indicator.pack(side=tk.RIGHT, padx=(5,0))
         else:
-            self.update_indicator.pack_forget() # Hide indicator
+            self.update_indicator.pack_forget()
 
 class InstallOptionsPage(tk.Frame):
     def __init__(self, parent, controller):
@@ -499,15 +533,15 @@ class InstallOptionsPage(tk.Frame):
         self.controller = controller
         self.configure(bg="#f0f0f0")
 
-        self.columnconfigure(0, weight=1)
-        self.columnconfigure(1, weight=3)
-        self.columnconfigure(2, weight=1)
+        self.columnconfigure(0, weight=1) # Spacer left
+        self.columnconfigure(1, weight=3) # Content area
+        self.columnconfigure(2, weight=1) # Spacer right
 
-        self.rowconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
-        self.rowconfigure(2, weight=0)
-        self.rowconfigure(3, weight=0)
-        self.rowconfigure(4, weight=2)
+        self.rowconfigure(0, weight=1) # Heading
+        self.rowconfigure(1, weight=0) # Label and Entry
+        self.rowconfigure(2, weight=0) # Checkbox 1
+        self.rowconfigure(3, weight=0) # Checkbox 2
+        self.rowconfigure(4, weight=2) # Spacer above navigation
 
         tk.Label(self, text="Installation Options", font=("Inter", 24, "bold"), fg="#333", bg="#f0f0f0") \
             .grid(row=0, column=0, columnspan=3, pady=(40, 20), sticky="n")
@@ -534,22 +568,25 @@ class InstallOptionsPage(tk.Frame):
                        selectcolor="#d9d9d9", relief="flat", bd=0) \
             .grid(row=3, column=0, columnspan=3, padx=(100, 50), pady=5, sticky="w")
 
-        button_frame = tk.Frame(self, bg="#f0f0f0")
-        button_frame.grid(row=4, column=0, columnspan=3, pady=(40, 40), sticky="s")
-        button_frame.columnconfigure(0, weight=1)
-        button_frame.columnconfigure(1, weight=1)
+        # Centralized Navigation Frame for consistency
+        self.navigation_frame = tk.Frame(self, bg="#f0f0f0")
+        self.navigation_frame.grid(row=4, column=0, columnspan=3, pady=(40, 40), sticky="s")
+        self.navigation_frame.columnconfigure(0, weight=1) # Spacer on left
+        self.navigation_frame.columnconfigure(1, weight=0) # Back button
+        self.navigation_frame.columnconfigure(2, weight=0) # Next/Install button
+        self.navigation_frame.columnconfigure(3, weight=1) # Spacer on right
 
-        back_button = tk.Button(button_frame, text="Back", command=lambda: controller.show_frame("WelcomePage"),
+        back_button = tk.Button(self.navigation_frame, text="< Back", command=lambda: controller.show_frame("WelcomePage"),
                                 font=("Inter", 14, "bold"), bg="#6c757d", fg="white",
                                 activebackground="#5a6268", activeforeground="white",
-                                relief="raised", bd=0, padx=25, pady=12, cursor="hand2")
-        back_button.grid(row=0, column=0, padx=20, sticky="e")
+                                relief="raised", bd=0, padx=20, pady=12, cursor="hand2")
+        back_button.grid(row=0, column=1, padx=10, sticky="w") # Placed to the left
 
-        install_button = tk.Button(button_frame, text="Install", command=lambda: controller.start_installation(),
+        install_button = tk.Button(self.navigation_frame, text="Install >", command=lambda: controller.start_installation(),
                                   font=("Inter", 14, "bold"), bg="#28a745", fg="white",
                                   activebackground="#218838", activeforeground="white",
-                                  relief="raised", bd=0, padx=25, pady=12, cursor="hand2")
-        install_button.grid(row=0, column=1, padx=20, sticky="w")
+                                  relief="raised", bd=0, padx=20, pady=12, cursor="hand2")
+        install_button.grid(row=0, column=2, padx=10, sticky="e") # Placed to the right
 
     def browse_folder(self):
         folder_selected = filedialog.askdirectory(initialdir=self.controller.install_path.get())
@@ -562,11 +599,11 @@ class InstallProgressPage(tk.Frame):
         self.controller = controller
         self.configure(bg="#f0f0f0")
 
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
-        self.rowconfigure(2, weight=3)
-        self.rowconfigure(3, weight=1)
+        self.columnconfigure(0, weight=1) # Main content column
+        self.rowconfigure(0, weight=1) # Heading
+        self.rowconfigure(1, weight=1) # Progress bar
+        self.rowconfigure(2, weight=3) # Status messages
+        self.rowconfigure(3, weight=1) # Navigation buttons
 
         tk.Label(self, text="Installation Progress", font=("Inter", 24, "bold"), fg="#333", bg="#f0f0f0") \
             .grid(row=0, column=0, pady=(40, 20), sticky="n")
@@ -574,15 +611,29 @@ class InstallProgressPage(tk.Frame):
         self.progress_bar = ttk.Progressbar(self, orient="horizontal", length=400, mode="determinate", style='TProgressbar')
         self.progress_bar.grid(row=1, column=0, pady=20, sticky="ew", padx=100)
 
-        self.status_label = tk.Label(self, text="Ready to install...", font=("Inter", 12), wraplength=550,
+        self.status_label = tk.Label(self, text="Ready...", font=("Inter", 12), wraplength=550,
                                       justify="center", fg="#555", bg="#f0f0f0")
         self.status_label.grid(row=2, column=0, padx=50, pady=20, sticky="n")
 
-        self.action_button = tk.Button(self, text="Start Installation", command=self.controller.start_installation, # This button's command will change based on context
+        # Centralized Navigation Frame for consistency
+        self.navigation_frame = tk.Frame(self, bg="#f0f0f0")
+        self.navigation_frame.grid(row=3, column=0, pady=(30, 40), sticky="s")
+        self.navigation_frame.columnconfigure(0, weight=1) # Spacer on left
+        self.navigation_frame.columnconfigure(1, weight=0) # Back button
+        self.navigation_frame.columnconfigure(2, weight=0) # Action button (Next/Install/Complete)
+        self.navigation_frame.columnconfigure(3, weight=1) # Spacer on right
+
+        self.back_button = tk.Button(self.navigation_frame, text="< Back", command=None, # Command set by reset_status
+                                     font=("Inter", 14, "bold"), bg="#6c757d", fg="white",
+                                     activebackground="#5a6268", activeforeground="white",
+                                     relief="raised", bd=0, padx=20, pady=12, cursor="hand2")
+        self.back_button.grid(row=0, column=1, padx=10, sticky="w") # Placed to the left
+
+        self.action_button = tk.Button(self.navigation_frame, text="Start Installation", command=self.controller.start_installation, 
                                          font=("Inter", 14, "bold"), bg="#007BFF", fg="white",
                                          activebackground="#0056b3", activeforeground="white",
-                                         relief="raised", bd=0, padx=25, pady=12, cursor="hand2")
-        self.action_button.grid(row=3, column=0, pady=(30, 40), sticky="n")
+                                         relief="raised", bd=0, padx=20, pady=12, cursor="hand2")
+        self.action_button.grid(row=0, column=2, padx=10, sticky="e") # Placed to the right
 
     def update_status(self, message, progress_value, error=False, success=False):
         self.after(10, self._update_gui_elements, message, progress_value, error, success)
@@ -591,26 +642,32 @@ class InstallProgressPage(tk.Frame):
         self.progress_bar["value"] = progress_value
         self.status_label.config(text=message)
         
+        # Disable action button while process is running, enable only on reset or completion
+        if progress_value < 100 and not error and not success:
+            self.action_button.config(state=tk.DISABLED) 
+        else: # Process is finished (complete or error)
+            self.action_button.config(state=tk.NORMAL)
+
         if error:
             self.status_label.config(fg="red")
-            self.action_button.config(state=tk.DISABLED) 
+            self.action_button.config(text="Error Occurred", bg="#dc3545", state=tk.DISABLED) # Keep disabled on error
+            self.back_button.config(state=tk.NORMAL, command=lambda: self.controller.show_frame("InstallOptionsPage")) # Allow going back on error
         elif success:
             self.status_label.config(fg="green")
-            self.action_button.config(state=tk.DISABLED) 
+            self.action_button.config(text="Finish", bg="#28a745", command=self.controller.destroy) # Option to close app on success
+            self.back_button.config(state=tk.DISABLED) # No going back after success
         else:
             self.status_label.config(fg="#555") 
-            self.action_button.config(state=tk.DISABLED) # Disable button while installing or updating
+            # Action button state and text are managed by `start_installation` or `start_perform_update`
+            # and disabled here during ongoing process
 
-        if progress_value == 100 and not error:
-            self.action_button.config(text="Process Complete!", state=tk.DISABLED, bg="#28a745")
-        
         self.update_idletasks() 
 
     def reset_status(self):
         self.progress_bar["value"] = 0
-        self.status_label.config(text="Ready...", fg="#555")
-        # Reset button text based on context (install or update) if needed, otherwise keep general
-        self.action_button.config(text="Start Process", state=tk.NORMAL, bg="#007BFF", command=self.controller.start_installation)
+        self.status_label.config(text="Preparing installation...", fg="#555") # Changed initial text
+        self.action_button.config(text="Starting...", state=tk.DISABLED, bg="#007BFF") # Disabled and set initial text
+        self.back_button.config(state=tk.DISABLED) # Back button typically disabled on progress start
 
 
 if __name__ == "__main__":
