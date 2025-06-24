@@ -18,7 +18,10 @@ INSTALLER_REPO_NAME = "bsc-Installer"
 BSI_ZIP_URL_FORMAT = f"https://github.com/{BSI_REPO_OWNER}/{BSI_REPO_NAME}/archive/refs/tags/{{version}}.zip"
 BEAMMP_SERVER_EXE_URL = "https://github.com/BeamMP/BeamMP-Server/releases/latest/download/BeamMP-Server.exe"
 
-CURRENT_INSTALLER_VERSION = "v0.4.3" # This installer's version
+CURRENT_INSTALLER_VERSION = "v0.4.5" # This installer's version
+
+# Constant for the configuration file
+CONFIG_FILE_NAME = "installer_config.ini"
 
 class BSIInstaller(tk.Tk):
     def __init__(self):
@@ -39,8 +42,12 @@ class BSIInstaller(tk.Tk):
         self.install_path = tk.StringVar(self)
         self.delete_zip_var = tk.BooleanVar(self, value=True)
         self.create_server_var = tk.BooleanVar(self, value=False)
+        
         self.default_install_path = os.path.join(os.path.expanduser("~"), "Documents", "Beam Server")
-        self.install_path.set(self.default_install_path)
+        self.install_path.set(self.default_install_path) # Set default initially
+
+        # NEW: Load previous installation path if available
+        self.load_installation_path()
 
         # Update status variables
         self.bsi_update_available = False
@@ -246,6 +253,8 @@ class BSIInstaller(tk.Tk):
             
             # Write/Update release.txt after successful installation
             self.write_release_file(bsi_version_to_install, CURRENT_INSTALLER_VERSION) 
+            # NEW: Save the successfully installed path
+            self.save_installation_path(install_base_path)
             
             progress_page.update_status("Installation complete!", 100, success=True)
             messagebox.showinfo("Installation Complete", "BSI and BeamMP Server (if selected) have been installed successfully!")
@@ -253,6 +262,42 @@ class BSIInstaller(tk.Tk):
         except Exception as e:
             progress_page.update_status(f"An error occurred: {e}", 100, error=True)
             messagebox.showerror("Installation Error", f"An unexpected error occurred during installation: {e}")
+
+    # NEW: Methods for saving and loading the installation path
+    def get_config_file_path(self):
+        # Get the directory where the installer script is located
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(script_dir, CONFIG_FILE_NAME)
+
+    def load_installation_path(self):
+        config_path = self.get_config_file_path()
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("InstallPath="):
+                            saved_path = line.split("=")[1].strip()
+                            # Verify if the path actually exists and is a directory
+                            if os.path.isdir(os.path.join(saved_path, "Beam Server")): 
+                                self.install_path.set(saved_path)
+                                print(f"DEBUG: Loaded saved install path: {saved_path}")
+                                break
+                            else:
+                                print(f"DEBUG: Saved path '{saved_path}' does not contain 'Beam Server' folder or is invalid. Using default.")
+            except Exception as e:
+                print(f"ERROR: Could not load config file {config_path}: {e}")
+        else:
+            print(f"DEBUG: Config file not found at {config_path}. Using default install path.")
+
+    def save_installation_path(self, path):
+        config_path = self.get_config_file_path()
+        try:
+            with open(config_path, 'w') as f:
+                f.write(f"InstallPath={path}\n")
+            print(f"DEBUG: Saved install path: {path} to {config_path}")
+        except Exception as e:
+            print(f"ERROR: Could not save config file {config_path}: {e}")
 
     def get_release_file_path(self):
         # The release.txt file will be in the 'Beam Server' main folder
@@ -268,12 +313,22 @@ class BSIInstaller(tk.Tk):
             try:
                 with open(release_file_path, 'r') as f:
                     for line in f:
+                        line = line.strip() # Remove leading/trailing whitespace
                         if line.startswith("BSC_Current_Version ="):
-                            bsc_version = line.split('=')[1].strip()
+                            try:
+                                bsc_version = line.split('=')[1].strip()
+                            except IndexError:
+                                print(f"Warning: Malformed BSC_Current_Version line: {line}")
                         elif line.startswith("BSC_installer_Current_version ="):
-                            installer_version = line.split('=')[1].strip()
+                            try:
+                                installer_version = line.split('=')[1].strip()
+                            except IndexError:
+                                print(f"Warning: Malformed BSC_installer_Current_version line: {line}")
             except Exception as e:
-                print(f"Error reading release.txt: {e}")
+                print(f"Error reading release.txt at {release_file_path}: {e}")
+        else:
+            print(f"DEBUG: release.txt not found at: {release_file_path}")
+        print(f"DEBUG: Read from release.txt - BSC_Current_Version: {bsc_version}, BSC_installer_Current_version: {installer_version}")
         return bsc_version, installer_version
 
     def write_release_file(self, bsc_version, installer_version):
@@ -284,6 +339,7 @@ class BSIInstaller(tk.Tk):
             with open(release_file_path, 'w') as f:
                 f.write(f"BSC_Current_Version = {bsc_version}\n")
                 f.write(f"BSC_installer_Current_version = {installer_version}\n")
+            print(f"DEBUG: Wrote to release.txt - BSC_Current_Version = {bsc_version}, BSC_installer_Current_version = {installer_version}")
         except Exception as e:
             print(f"Error writing release.txt: {e}")
 
@@ -291,11 +347,16 @@ class BSIInstaller(tk.Tk):
         api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/latest"
         try:
             response = requests.get(api_url, timeout=10)
-            response.raise_for_status()
+            response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
             latest_release_data = response.json()
-            return latest_release_data.get("tag_name")
+            tag_name = latest_release_data.get("tag_name")
+            print(f"DEBUG: Latest GitHub tag for {repo_owner}/{repo_name}: {tag_name}")
+            return tag_name
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching latest release for {repo_owner}/{repo_name}: {e}")
+            print(f"ERROR: Failed to fetch latest release for {repo_owner}/{repo_name} from {api_url}. Error: {e}")
+            if isinstance(e, requests.exceptions.HTTPError):
+                print(f"  HTTP Status Code: {e.response.status_code}")
+                print(f"  Response Content: {e.response.text}")
             return None
 
     def start_update_check(self):
@@ -312,27 +373,45 @@ class BSIInstaller(tk.Tk):
         self.bsi_update_available = False
         self.installer_update_available = False
 
+        print(f"DEBUG: Current BSC Version (from file): {self.current_bsc_version}")
+        print(f"DEBUG: Latest BSI Version (from GitHub): {self.latest_bsi_version}")
+
         if self.latest_bsi_version and self.current_bsc_version:
             try:
                 if parse_version(self.latest_bsi_version) > parse_version(self.current_bsc_version):
                     self.bsi_update_available = True
+                    print(f"DEBUG: BSI Update Available: True (Latest: {self.latest_bsi_version}, Current: {self.current_bsc_version})")
+                else:
+                    print(f"DEBUG: BSI Update Available: False (Latest: {self.latest_bsi_version}, Current: {self.current_bsc_version})")
             except Exception as e:
-                print(f"Error comparing BSI versions: {e}")
+                print(f"ERROR: Error comparing BSI versions '{self.latest_bsi_version}' vs '{self.current_bsc_version}': {e}")
                 
         # Compare current running installer version to latest GitHub installer version
         # The installer's own version is CURRENT_INSTALLER_VERSION
+        print(f"DEBUG: Current Installer Version (running): {CURRENT_INSTALLER_VERSION}")
+        print(f"DEBUG: Latest Installer Version (from GitHub): {self.latest_installer_version}")
         if self.latest_installer_version:
             try:
                 if parse_version(self.latest_installer_version) > parse_version(CURRENT_INSTALLER_VERSION):
                     self.installer_update_available = True
+                    print(f"DEBUG: Installer Update Available: True (Latest: {self.latest_installer_version}, Current: {CURRENT_INSTALLER_VERSION})")
+                else:
+                    print(f"DEBUG: Installer Update Available: False (Latest: {self.latest_installer_version}, Current: {CURRENT_INSTALLER_VERSION})")
             except Exception as e:
-                print(f"Error comparing installer versions: {e}")
+                print(f"ERROR: Error comparing installer versions '{self.latest_installer_version}' vs '{CURRENT_INSTALLER_VERSION}': {e}")
 
         # Update UI indicator on main thread
         self.after(10, self.frames["WelcomePage"].update_update_indicator)
 
     def show_update_dialog(self):
-        update_text = "Checking for updates...\n"
+        update_text = ""
+
+        # Display debug info in the dialog as well
+        dialog_message = f"DEBUG INFO:\n" \
+                         f"  Installed BSC: {self.current_bsc_version or 'N/A'}\n" \
+                         f"  Latest BSC (GitHub): {self.latest_bsi_version or 'N/A'}\n" \
+                         f"  Running Installer: {CURRENT_INSTALLER_VERSION}\n" \
+                         f"  Latest Installer (GitHub): {self.latest_installer_version or 'N/A'}\n\n"
 
         if self.bsi_update_available or self.installer_update_available:
             update_text = "Updates available!\n\n"
@@ -342,12 +421,12 @@ class BSIInstaller(tk.Tk):
                 update_text += f"BSI Installer: Installed {CURRENT_INSTALLER_VERSION}, Latest {self.latest_installer_version}\n"
             update_text += "\nDo you want to proceed with the update?"
             
-            response = messagebox.askyesno("Update Available", update_text)
+            response = messagebox.askyesno("Update Available", dialog_message + update_text)
             if response:
                 self.start_perform_update()
         else:
             update_text = "No updates found. Your applications are up to date."
-            messagebox.showinfo("No Updates", update_text)
+            messagebox.showinfo("No Updates", dialog_message + update_text)
 
     def start_perform_update(self):
         progress_page = self.frames["InstallProgressPage"]
@@ -428,6 +507,8 @@ class BSIInstaller(tk.Tk):
                     progress_page.update_status("New installer script downloaded.", 80)
 
                     # Update release.txt with the new installer version
+                    # Note: This updates the release.txt in the *installed* Beam Server folder.
+                    # The *running* installer's version (CURRENT_INSTALLER_VERSION) won't change until it's restarted.
                     self.write_release_file(self.current_bsc_version or self.latest_bsi_version, self.latest_installer_version)
 
                     # Inform user about restart
@@ -626,7 +707,7 @@ class InstallProgressPage(tk.Frame):
         self.back_button = tk.Button(self.navigation_frame, text="< Back", command=None, # Command set by reset_status
                                      font=("Inter", 14, "bold"), bg="#6c757d", fg="white",
                                      activebackground="#5a6268", activeforeground="white",
-                                     relief="raised", bd=0, padx=20, pady=12, cursor="hand2")
+                                     relief="raised", bd=0, padx=20, pady=12, cursor="hand2", state=tk.DISABLED)
         self.back_button.grid(row=0, column=1, padx=10, sticky="w") # Placed to the left
 
         self.action_button = tk.Button(self.navigation_frame, text="Start Installation", command=self.controller.start_installation, 
@@ -650,7 +731,7 @@ class InstallProgressPage(tk.Frame):
 
         if error:
             self.status_label.config(fg="red")
-            self.action_button.config(text="Error Occurred", bg="#dc3545", state=tk.DISABLED) # Keep disabled on error
+            self.action_button.config(text="Error Occurred", bg="#dc3545", state=tk.NORMAL) # Changed to NORMAL on error for retry/review
             self.back_button.config(state=tk.NORMAL, command=lambda: self.controller.show_frame("InstallOptionsPage")) # Allow going back on error
         elif success:
             self.status_label.config(fg="green")
